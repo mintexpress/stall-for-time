@@ -11,8 +11,7 @@ import PanicButtons from '@/components/PanicButtons';
 import GameSummary from '@/components/GameSummary';
 import StudentCharacter from '@/components/StudentCharacter';
 import FloatingEmoji from '@/components/FloatingEmoji';
-import { evaluateSpeech, generatePanicResponse, generateGameSummary } from '@/utils/gameLogic';
-import { generateSlide, getTeacherCommentary } from '@/utils/openaiApi';
+import { generateSlide, evaluateSpeech, generatePanicResponse, generateTeacherComment, generateGameSummary } from '@/utils/gameLogic';
 import { useToast } from '@/hooks/use-toast';
 
 interface Slide {
@@ -66,17 +65,6 @@ const Index = () => {
   
   const { toast } = useToast();
 
-  const generateTeacherCommentary = useCallback(async () => {
-  if (gameState !== 'playing' || !currentSlide) return;
-  const { commentary } = await getTeacherCommentary(
-    speechInput,
-    currentSlide.title,
-    currentSlide.goal.description,
-    currentGoalCompleted
-  );
-  setTeacherComment(commentary);
-}, [speechInput, currentGoalCompleted, gameState, currentSlide]);
-
   // Timer logic
   useEffect(() => {
     if (gameState === 'playing' && timeLeft > 0) {
@@ -101,13 +89,13 @@ const Index = () => {
 
   // Teacher commentary
   useEffect(() => {
-  if (gameState === 'playing') {
-    const commentTimer = setTimeout(() => {
-      void generateTeacherCommentary();
-    }, Math.random() * 5000 + 7000); // 7-12 seconds
-    return () => clearTimeout(commentTimer);
-  }
-}, [teacherComment, gameState, generateTeacherCommentary]);
+    if (gameState === 'playing') {
+      const commentTimer = setTimeout(() => {
+        generateTeacherCommentary();
+      }, Math.random() * 5000 + 7000); // 7-12 seconds
+      return () => clearTimeout(commentTimer);
+    }
+  }, [teacherComment, gameState]);
 
   // Suspicion monitoring
   useEffect(() => {
@@ -119,22 +107,7 @@ const Index = () => {
     }
   }, [suspicion, peakSuspicion]);
 
-    const loadNewSlide = useCallback(async () => {
-    const { slideTitle, bullets, secretGoal, keywords } = await generateSlide();
-    setCurrentSlide({
-      title: slideTitle,
-      bullets: bullets,
-      goal: { description: secretGoal, keywords: keywords }
-    });
-    setCurrentGoalCompleted(false);
-    toast({
-      title: "New Slide!",
-      description: `Secret Goal: ${secretGoal}`,
-      duration: 3000,
-    });
-  }, [toast]);
-
-  const startGame = useCallback(async () => {
+  const startGame = useCallback(() => {
     setGameState('playing');
     setSlideNumber(1);
     setSuspicion(20);
@@ -144,10 +117,21 @@ const Index = () => {
     setSpeechInput('');
     setSpeechHistory([]);
     setTeacherComment('Alright class, let\'s see what you\'ve prepared for us today...');
-    await loadNewSlide();
-  }, [loadNewSlide]);
+    loadNewSlide();
+  }, []);
 
-  const nextSlide = useCallback(async () => {
+  const loadNewSlide = useCallback(() => {
+    const newSlide = generateSlide();
+    setCurrentSlide(newSlide);
+    setCurrentGoalCompleted(false);
+    toast({
+      title: "New Slide!",
+      description: `Secret Goal: ${newSlide.goal.description}`,
+      duration: 3000,
+    });
+  }, [toast]);
+
+  const nextSlide = useCallback(() => {
     // Track speech for grading
     if (speechInput.trim()) {
       setSpeechHistory(prev => [...prev, speechInput]);
@@ -157,7 +141,7 @@ const Index = () => {
       endGame();
     } else {
       setSlideNumber(prev => prev + 1);
-      await loadNewSlide();
+      loadNewSlide();
       setSpeechInput('');
       setTimeLeft(60); // Reset to 60 seconds for new slide
     }
@@ -194,6 +178,14 @@ const Index = () => {
     setFloatingEmoji(evaluation.emoji);
     setTimeout(() => setFloatingEmoji(null), 2000);
   }, [speechInput, currentSlide, currentGoalCompleted, gameStats.longestSentence, toast]);
+
+  const generateTeacherCommentary = useCallback(() => {
+    if (gameState !== 'playing') return;
+    
+    // Pass slide title to the AI commentary generator
+    const comment = generateTeacherComment(speechInput, suspicion, currentGoalCompleted, currentSlide?.title || '');
+    setTeacherComment(comment);
+  }, [speechInput, suspicion, currentGoalCompleted, gameState, currentSlide]);
 
   const handlePanicButton = useCallback((type: 'quote' | 'definition' | 'chart') => {
     const response = generatePanicResponse(type, currentSlide?.title || '');
